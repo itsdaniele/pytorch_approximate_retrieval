@@ -5,6 +5,7 @@ setup(
     version="0.1",
     description="Approximate KNN retrieval for PyTorch",
     url="http://github.com/itsdaniele/pytorch_approximate_retrieval",
+    long_description_content_type="text/markdown",
     author="Daniele Paliotta",
     author_email="daniele.paliotta@unige.ch",
     license="MIT",
