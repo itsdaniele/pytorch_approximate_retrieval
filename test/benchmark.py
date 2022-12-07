@@ -1,8 +1,8 @@
 import torch
-from memory_factory import MemoryManager
+from pytorch_approximate_retrieval.memory_factory import MemoryManager
 
-DB_SIZE = 1000000
-KEY_SIZE = VALUE_SIZE = QUERY_SIZE = 256
+DB_SIZE = 32000
+KEY_SIZE = VALUE_SIZE = QUERY_SIZE = 32
 NUM_HEADS = 4
 NUM_NEIGHBORS = 8
 
@@ -11,16 +11,14 @@ mm = MemoryManager(
 )
 layer = mm.create_memory_layer()
 
-key = torch.ones((DB_SIZE, NUM_HEADS, KEY_SIZE))
-value = torch.ones((DB_SIZE, NUM_HEADS, VALUE_SIZE))
+key = torch.ones((DB_SIZE, NUM_HEADS, KEY_SIZE)).cuda()
+value = torch.ones((DB_SIZE, NUM_HEADS, VALUE_SIZE)).cuda()
 
 layer.update(key, value)
 
-query = torch.ones((256, NUM_HEADS, QUERY_SIZE))
+query = torch.ones((256, NUM_HEADS, QUERY_SIZE)).cuda()
 
 out = layer.topk_retrieval(query, 2)
-
-print(out)
 
 # measure time between events
 import time
@@ -30,5 +28,4 @@ out = layer.topk_retrieval(query, NUM_NEIGHBORS)
 end = time.time()
 print(end - start)
 
-print(out.shape)
-
+print(out[0].shape)

@@ -6,6 +6,7 @@ from typing import Tuple, Sequence
 
 import numpy as np
 
+
 Dtype = torch.dtype
 Shape = Sequence[int]
 Tensor = torch.Tensor
@@ -23,9 +24,8 @@ class MemoryLayer(torch.nn.Module, metaclass=abc.ABCMeta):
             value: of shape (num_kv, num_datasets, v_features)
 
         Returns:
-            Dummy value so that TPU operations can wait for the update to finish if
-            desired. #TODO ?
-            """
+            None
+        """
         raise NotImplementedError()
 
     @abc.abstractmethod
@@ -51,8 +51,7 @@ class MemoryLayer(torch.nn.Module, metaclass=abc.ABCMeta):
             datasets: A vector of shape (num_datasets) of type bool. Each position
                 indicates whether the dataset with the same index should be reset.
         Returns:
-            Dummy value so that TPU operations can wait for the update to finish if
-            desired.
+            None
         """
         raise NotImplementedError()
 
@@ -79,15 +78,15 @@ def _rearrange_dimensions_shapes(
 
 def _rearrange_dimensions(x: Tensor, split_dimensions: Sequence[int]) -> Tensor:
     """Rearrange array so that we can split by a single dimension.
-  Turns an array of shape [d1, ..., dn, features] and a list of dimensions to
-  split by into [prod(remaining_dimensions), prod(split_dimensions),
-  features]
-  Args:
-    x: array of shape [d1, ..., dn, features]
-    split_dimensions: list of dimensions that should end up in dimension -2.
-  Returns:
-    Rearranged array as described above.
-  """
+    Turns an array of shape [d1, ..., dn, features] and a list of dimensions to
+    split by into [prod(remaining_dimensions), prod(split_dimensions),
+    features]
+    Args:
+      x: array of shape [d1, ..., dn, features]
+      split_dimensions: list of dimensions that should end up in dimension -2.
+    Returns:
+      Rearranged array as described above.
+    """
     split_dimensions = [d % len(x.shape) for d in split_dimensions]
     split_dimensions = sorted(split_dimensions)
     split_shape, batch_shape = _rearrange_dimensions_shapes(x.shape, split_dimensions)
@@ -112,15 +111,15 @@ def _restore_dimensions(
     x: Tensor, original_shape: Shape, split_dimensions: Sequence[int]
 ) -> Tensor:
     """Restores arrays encoded with _rearrange_dimensions.
-  Args:
-    x: Array of shape [prod(batch_shape), prod(split_shape), feature...]
-    original_shape: Shape of the array to restore to.
-    split_dimensions: Dimensions that were multiplied into dimension 2.
-  Returns:
-    Array of the original shape and axis order for all dimensions in batch_shape
-    and split_shape. Feature dimensions may have changed (can include additional
-    dimensions for neighbors, for example).
-  """
+    Args:
+      x: Array of shape [prod(batch_shape), prod(split_shape), feature...]
+      original_shape: Shape of the array to restore to.
+      split_dimensions: Dimensions that were multiplied into dimension 2.
+    Returns:
+      Array of the original shape and axis order for all dimensions in batch_shape
+      and split_shape. Feature dimensions may have changed (can include additional
+      dimensions for neighbors, for example).
+    """
     split_dimensions = [d % len(original_shape) for d in split_dimensions]
     split_dimensions = sorted(split_dimensions)
     split_shape, batch_shape = _rearrange_dimensions_shapes(
@@ -162,7 +161,7 @@ class Memory(torch.nn.Module):
             value: typically of shape (kv_len, num_heads, v_features). This
                 tensor is split up into datasets according to `split_dimensions`.
         Returns:
-            A dummy value 0, once the operation has completed.
+            None
         """
         if key.ndim != 3 or value.ndim != 3:
             raise ValueError(
@@ -203,8 +202,9 @@ class Memory(torch.nn.Module):
 
         Args:
             datasets: of shape (num_datasets,), typically the same as (num_heads,).
+
         Returns:
-            A dummy value 0, once the operation has completed.
+            None
         """
         return self.wrapped.reset(datasets)
 
@@ -226,10 +226,10 @@ def _chunking_sparsify(
     # topk_scores and topk_indices will only be computed if we depend on their
     # results.
     topk_scores = torch.max(reshaped_scores, dim=1)[0]
-    local_indices = torch.argmax(reshaped_scores, axis=1)
-    topk_indices = local_indices * num_buckets + torch.arange(num_buckets).reshape(
-        (1, num_buckets)
-    )
+    local_indices = torch.argmax(reshaped_scores, dim=1)
+    topk_indices = local_indices * num_buckets + torch.arange(
+        num_buckets
+    ).cuda().reshape((1, num_buckets))
     return sparse_scores, topk_scores, topk_indices
 
 
@@ -288,14 +288,14 @@ class MemoryOnGpu(MemoryLayer):
         self.setup()
 
     def setup(self):
-        self.db_index = torch.zeros((self.num_datasets,), dtype=torch.int32)
+        self.db_index = torch.zeros((self.num_datasets,), dtype=torch.int32).cuda()
         self.key_db = torch.zeros(
             (self.num_datasets, self.database_size, self.key_features), dtype=self.dtype
-        )
+        ).cuda()
         self.value_db = torch.zeros(
             (self.num_datasets, self.database_size, self.value_features),
             dtype=self.dtype,
-        )
+        ).cuda()
 
         self.retrieved_indices = torch.zeros((0, 0, 0), dtype=torch.int32)
         self.retrieved_indices_scores = torch.zeros((0, 0, 0), dtype=torch.float32)
@@ -308,6 +308,14 @@ class MemoryOnGpu(MemoryLayer):
         assert num_datasets == self.num_datasets
         assert new_values.ndim == 3
         assert start_index.shape == (self.num_datasets,)
+
+        # def _update(database, new_values, start_index):
+        #     database[start]
+        #         database, new_values, start_indices=(start_index, 0))
+
+        # return jax.vmap(
+        #     _update, in_axes=(0, 0, 0), out_axes=0)(database, new_values,
+        #                                         start_index)
 
         for i in range(database.shape[0]):
             database[
@@ -336,12 +344,11 @@ class MemoryOnGpu(MemoryLayer):
         self.key_db = self._update_kv_database(self.key_db, key, start_index)
         self.value_db = self._update_kv_database(self.value_db, value, start_index)
         self.db_index = self.db_index + num_kv
-        return 0
 
     def topk_retrieval(
         self, query: Tensor, num_neighbors: int
     ) -> Tuple[Tensor, Tensor]:
-        """Nearest neighbors by full multiplication and approximate top k on TPU."""
+        """Nearest neighbors by full multiplication and approximate top k on GPU."""
 
         unused_num_kv, num_datasets, query_features = query.shape
         assert num_datasets == self.num_datasets
@@ -402,4 +409,3 @@ class MemoryOnGpu(MemoryLayer):
         self.value_db.value = lax.map(
             _reset_single_dataset, xs=(self.value_db.value, datasets)
         )
-        return 0

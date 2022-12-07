@@ -1,6 +1,6 @@
 from typing import Any, Optional, Tuple
 import torch
-from memory import MemoryOnGpu, Memory
+from pytorch_approximate_retrieval.memory import MemoryOnGpu, Memory
 
 Shape = Tuple[int]
 Dtype = Any
