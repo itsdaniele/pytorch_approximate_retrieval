@@ -215,7 +215,7 @@ def _chunking_sparsify(
     """Approximate top k operation for a single head."""
     # q = q_length, f = qk features, d = database_size
     scores = torch.einsum("qf,df->qd", query, key)
-    mask = (key.sum(-1) == 0).type(torch.bfloat16) * -1e6
+    mask = (key.sum(-1) == 0).type(torch.float32) * -1e6
     scores += mask
 
     num_queries, _ = scores.shape
