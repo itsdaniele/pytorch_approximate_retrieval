@@ -309,15 +309,7 @@ class MemoryOnGpu(MemoryLayer):
         assert new_values.ndim == 3
         assert start_index.shape == (self.num_datasets,)
 
-        # def _update(database, new_values, start_index):
-        #     database[start]
-        #         database, new_values, start_indices=(start_index, 0))
-
-        # return jax.vmap(
-        #     _update, in_axes=(0, 0, 0), out_axes=0)(database, new_values,
-        #                                         start_index)
-
-        for i in range(database.shape[0]):
+        for i in range(database.shape[0]):  # TODO parallelize
             database[
                 i, start_index[i] : start_index[i] + new_values[i].shape[0]
             ] = new_values[i]
@@ -379,8 +371,6 @@ class MemoryOnGpu(MemoryLayer):
         topk_indices = torch.stack(topk_indices)
 
         if self.report_scores_and_indices:
-            # TODO(mrabe): These variable updates may not work perfectly yet. Find out
-            # why Flax does not like them.
             self.retrieved_indices.value = topk_indices
             self.retrieved_indices_scores.value = topk_scores
 
@@ -402,10 +392,8 @@ class MemoryOnGpu(MemoryLayer):
             assert reset.dtype == torch.bool
             return database * (1 - reset)
 
-        self.db_index.value = self.db_index.value * (1 - datasets)
-        self.key_db.value = lax.map(
-            _reset_single_dataset, xs=(self.key_db.value, datasets)
-        )
-        self.value_db.value = lax.map(
-            _reset_single_dataset, xs=(self.value_db.value, datasets)
-        )
+        self.db_index = self.db_index * (1 - datasets.int())
+
+        for i in range(self.num_datasets):  # TODO broadcast?
+            self.key_db[i, :, :] = self.key_db[i, :, :] * (1 - datasets[i].int())
+            self.value_db[i, :, :] = self.value_db[i, :, :] * (1 - datasets[i].int())

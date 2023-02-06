@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="pytorch_approximate_retrieval",
-    version="0.1",
+    version="0.2",
     description="Approximate KNN retrieval for PyTorch",
     url="http://github.com/itsdaniele/pytorch_approximate_retrieval",
     long_description_content_type="text/markdown",

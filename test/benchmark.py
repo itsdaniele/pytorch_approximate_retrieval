@@ -28,4 +28,5 @@ out = layer.topk_retrieval(query, NUM_NEIGHBORS)
 end = time.time()
 print(end - start)
 
-print(out[0].shape)
+to_reset = [True] * NUM_HEADS
+layer.reset(torch.tensor(to_reset).cuda())
