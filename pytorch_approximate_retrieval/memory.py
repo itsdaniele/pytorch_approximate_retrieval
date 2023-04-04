@@ -1,4 +1,5 @@
 import torch
+
 import torch.nn.functional as F
 
 import abc
@@ -309,11 +310,20 @@ class MemoryOnGpu(MemoryLayer):
         assert new_values.ndim == 3
         assert start_index.shape == (self.num_datasets,)
 
+        d = database.clone()
         for i in range(database.shape[0]):  # TODO parallelize
-            database[
-                i, start_index[i] : start_index[i] + new_values[i].shape[0]
-            ] = new_values[i]
-        return database
+
+            spots_left = database_size - start_index[i]
+            if new_values[i].shape[0] > spots_left:
+                d[i, -spots_left:, :] = new_values[i, :spots_left]
+                d[i, : new_values[i].shape[0] - spots_left, :] = new_values[
+                    i, spots_left:
+                ]
+            else:
+                d[
+                    i, start_index[i] : start_index[i] + new_values[i].shape[0]
+                ] = new_values[i]
+        return d
 
     def update(self, key: Tensor, value: Tensor) -> int:
         """Add keys and values to the memory; overwrite oldest if memory is full."""
@@ -324,9 +334,9 @@ class MemoryOnGpu(MemoryLayer):
         assert num_datasets == self.num_datasets
         assert key_features == self.key_features
         assert value.shape[-1] == self.value_features
-        assert (
-            self.database_size % num_kv == 0
-        ), "Database size must be integer multiple of num_kv."
+        # assert (
+        #     self.database_size % num_kv == 0
+        # ), "Database size must be integer multiple of num_kv."
         key = torch.moveaxis(key, source=1, destination=0)  # split by dataset
         value = torch.moveaxis(value, source=1, destination=0)  # split by dataset
 
